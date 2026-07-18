@@ -65,12 +65,25 @@ def export_to_excel(df):
 default_file = "ind_nifty500list.csv"
 tickers_list = []
 
-uploaded_file = st.file_uploader("Upload a Custom Stock List (CSV format)", type=['csv'])
+# --- Updated File Upload Logic with .NS Suffix Handling ---
+c1, c2 = st.columns([2, 1])
+with c1:
+    uploaded_file = st.file_uploader("Upload a Custom Stock List (CSV format)", type=['csv'])
+with c2:
+    st.write("")
+    st.write("") # Vertical spacing alignment
+    append_ns = st.checkbox("Append '.NS' to uploaded symbols (Required for Indian NSE stocks)", value=True)
 
 if uploaded_file is not None:
     df_upload = pd.read_csv(uploaded_file)
     col_name = 'Symbol' if 'Symbol' in df_upload.columns else ('Ticker' if 'Ticker' in df_upload.columns else df_upload.columns[0])
-    tickers_list = [str(t).strip().upper() for t in df_upload[col_name].dropna().tolist()]
+    raw_tickers = [str(t).strip().upper() for t in df_upload[col_name].dropna().tolist()]
+    
+    if append_ns:
+        tickers_list = [f"{t}.NS" if not t.endswith('.NS') else t for t in raw_tickers]
+    else:
+        tickers_list = raw_tickers
+        
     st.success(f"Loaded {len(tickers_list)} tickers from uploaded file.")
 elif os.path.exists(default_file):
     df_default = pd.read_csv(default_file)
@@ -78,7 +91,7 @@ elif os.path.exists(default_file):
         tickers_list = [f"{str(t).strip().upper()}.NS" for t in df_default['Symbol'].dropna().tolist()]
     else:
         tickers_list = [str(t).strip().upper() for t in df_default.iloc[:, 0].dropna().tolist()]
-    st.info(f"Loaded Nifty 500 options from context.")
+    st.info("Loaded Nifty 500 options from context.")
 else:
     tickers_list = ["AAPL", "MSFT", "GOOGL"]
 
@@ -177,7 +190,9 @@ if st.button("Run Comprehensive Engine Analysis"):
                 return ''
             
             styled_df = results_df.style.map(color_decision, subset=['Decision'])
-            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
+            # --- Streamlit Deprecation Warning Fixed Here ---
+            st.dataframe(styled_df, width='stretch', hide_index=True)
 
             excel_buffer = export_to_excel(results_df)
             st.download_button(
