@@ -1,6 +1,7 @@
 import streamlit as st
 import asyncio
 import pandas as pd
+import os
 from agents import TechnicalAgent, SentimentAgent, MacroRiskAgent
 from utils import get_data, log_trade
 
@@ -9,13 +10,53 @@ st.set_page_config(layout="wide")
 st.title("AI Trading Agent Dashboard")
 
 st.markdown("### Stock Screener")
+
+# --- 1. File Upload & Preloading Logic ---
+default_file = "ind_nifty500list.csv"
+tickers_list = []
+
+uploaded_file = st.file_uploader("Upload a Custom Stock List (CSV format)", type=['csv'])
+
+if uploaded_file is not None:
+    # Load from User Upload
+    df_upload = pd.read_csv(uploaded_file)
+    # Autodetect column name
+    col_name = 'Symbol' if 'Symbol' in df_upload.columns else ('Ticker' if 'Ticker' in df_upload.columns else df_upload.columns[0])
+    tickers_list = [str(t).strip() for t in df_upload[col_name].dropna().tolist()]
+    st.success(f"Loaded {len(tickers_list)} tickers from uploaded file.")
+    
+elif os.path.exists(default_file):
+    # Load from Preloaded Default
+    df_default = pd.read_csv(default_file)
+    # The ind_nifty500list.csv has a 'Symbol' column. Yahoo Finance needs '.NS' for Indian stocks.
+    if 'Symbol' in df_default.columns:
+        tickers_list = [f"{str(t).strip()}.NS" for t in df_default['Symbol'].dropna().tolist()]
+    else:
+        tickers_list = [str(t).strip() for t in df_default.iloc[:, 0].dropna().tolist()]
+    st.info(f"Preloaded Nifty 500 list. Loaded {len(tickers_list)} tickers.")
+else:
+    tickers_list = ["AAPL", "MSFT", "GOOGL"] # Fallback
+
+# --- 2. Rate Limit Protection ---
+st.warning("⚠️ Analyzing a large list of stocks simultaneously may trigger API rate limits. It is recommended to process them in batches.")
+# Let the user chunk the execution to avoid YFRateLimitError
+batch_size = st.number_input(
+    "Number of stocks to analyze in this batch (0 to analyze all):", 
+    min_value=0, max_value=len(tickers_list), value=min(20, len(tickers_list))
+)
+
+if batch_size > 0:
+    tickers_list = tickers_list[:batch_size]
+
+# --- 3. UI Ticker Input ---
+# Populate the text area so it can still be manually edited before running
 tickers_input = st.text_area(
-    "Enter Ticker Symbols (comma-separated):", 
-    "AAPL, MSFT, GOOGL, TSLA"
+    "Tickers to analyze (comma-separated):", 
+    value=", ".join(tickers_list),
+    height=150
 )
 
 if st.button("Run Bulk Analysis"):
-    # Clean up the input string into a list
     tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
     
     if not tickers:
@@ -53,7 +94,6 @@ if st.button("Run Bulk Analysis"):
                 # 5. Price, SL, and Targets Setup
                 buy_price = round(current_price, 2) if current_price else 0.0
                 
-                # Simple percentage-based risk logic (5% SL, 5%/10%/15% Targets)
                 if decision == "BUY":
                     sl = round(buy_price * 0.95, 2)
                     t1 = round(buy_price * 1.05, 2)
@@ -78,7 +118,6 @@ if st.button("Run Bulk Analysis"):
                 asyncio.run(log_trade(ticker, decision, round(score if 'score' in locals() else 0, 2), explanation))
                 
             except Exception as e:
-                # Handle rate limits or bad tickers gracefully per row
                 results.append({
                     "Ticker": ticker,
                     "Decision": "ERROR",
@@ -99,7 +138,6 @@ if st.button("Run Bulk Analysis"):
         if results:
             results_df = pd.DataFrame(results)
             
-            # Apply basic styling to color-code the Decision column
             def color_decision(val):
                 if val == 'BUY': return 'background-color: rgba(30, 200, 50, 0.2)'
                 if val == 'SELL': return 'background-color: rgba(255, 50, 50, 0.2)'
