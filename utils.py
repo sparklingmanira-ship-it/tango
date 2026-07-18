@@ -1,14 +1,11 @@
 import yfinance as yf
-from tvDatafeed import TvDatafeed, Interval
 import aiosqlite
-import random
+import asyncio
 import pandas as pd
 from datetime import datetime
 
-# Initialize TradingView datafeed (Guest Mode)
-tv = TvDatafeed()
-
 def get_sector_index(ticker):
+    """Maps tickers to their respective Nifty sector indices."""
     sector_map = {
         "RELIANCE.NS": "^CNXENERGY",
         "TCS.NS": "^CNXIT",
@@ -18,90 +15,65 @@ def get_sector_index(ticker):
         "MARUTI.NS": "^CNXAUTO",
         "TATAMOTORS.NS": "^CNXAUTO"
     }
-    return sector_map.get(ticker, "^NSEI")
-
-# Helper function to fetch price data using TradingView as a fallback
-def fetch_price_data(ticker, period_days=90):
-    # Tier 1: Try yfinance
-    try:
-        t = yf.Ticker(ticker)
-        df = t.history(period="3mo", interval="1d")
-        if not df.empty:
-            return df
-    except Exception as e:
-        print(f"yfinance failed for {ticker}: {e}")
-
-    # Tier 2: Try TradingView tvdatafeed Fallback
-    try:
-        print(f"Attempting TradingView fallback for {ticker}...")
-        
-        # Strip '.NS' for TradingView, and set exchange to NSE
-        tv_symbol = ticker.replace('.NS', '')
-        
-        # tvdatafeed uses n_bars instead of period strings. 90 trading days ~= 3 months
-        df_tv = tv.get_hist(symbol=tv_symbol, exchange='NSE', interval=Interval.in_daily, n_bars=period_days)
-        
-        if df_tv is not None and not df_tv.empty:
-            # Standardize columns to match yfinance output (Capitalized headers)
-            df_tv.rename(columns={
-                'open': 'Open',
-                'high': 'High',
-                'low': 'Low',
-                'close': 'Close',
-                'volume': 'Volume'
-            }, inplace=True)
-            return df_tv
-            
-    except Exception as tv_e:
-        print(f"TradingView fallback failed for {ticker}: {tv_e}")
-
-    # Return empty DataFrame if both fail
-    return pd.DataFrame()
+    return sector_map.get(ticker, "^NSEI") # Default to Nifty 50 if sector not found
 
 async def get_data(ticker):
-    # 1. Price Data using the Fallback Engine
-    df = fetch_price_data(ticker)
-    
-    t = yf.Ticker(ticker)
-    info = t.info
-    
-    # 2. Sector Index Data
-    sector_symbol = get_sector_index(ticker)
-    sector_df = fetch_price_data(sector_symbol)
-    
-    # 3. Macro Benchmarks (VIX, 10Y Yields, Crude Oil)
-    vix_df = fetch_price_data("^VIX", period_days=2) # Short period for VIX
-    vix = 20.0 if vix_df.empty else vix_df['Close'].iloc[-1]
-    
-    macro_yield = fetch_price_data("^TNX", period_days=20)
-    macro_crude = fetch_price_data("BZ=F", period_days=20)
-    
-    yield_close = macro_yield['Close'].iloc[-1] if not macro_yield.empty else 4.0
-    crude_close = macro_crude['Close'].iloc[-1] if not macro_crude.empty else 75.0
-        
-    # 4. News Headlines
-    news_items = t.news
-    news_list = [n['title'] for n in news_items[:5]] if news_items else ["Trading volume remains steady."]
-    
-    # 5. Options Chain (PCR)
-    try:
-        expirations = t.options
-        if expirations:
-            opt = t.option_chain(expirations[0])
-            calls_vol = opt.calls['volume'].sum()
-            puts_vol = opt.puts['volume'].sum()
-            pcr = puts_vol / calls_vol if calls_vol > 0 else 1.0
-        else:
-            pcr = 1.0
-    except Exception:
-        pcr = 1.0
-        
-    # 6. Social Sentiment Placeholder
-    social_score = random.uniform(-0.5, 0.5) 
-        
-    return df, float(vix), info, news_list, pcr, social_score, sector_df, sector_symbol, yield_close, crude_close
+    """
+    Fetches comprehensive market data with built-in retry logic 
+    to handle YFinance rate limits gracefully.
+    """
+    for attempt in range(3):
+        try:
+            t = yf.Ticker(ticker)
+            # Fetch Price Data
+            df = t.history(period="3mo", interval="1d")
+            info = t.info
+            
+            if df.empty:
+                raise ValueError("Data empty, likely rate-limited.")
+            
+            # Fetch Sector Index
+            sector_symbol = get_sector_index(ticker)
+            sector_df = yf.Ticker(sector_symbol).history(period="3mo", interval="1d")
+            
+            # Fetch Macro Benchmarks (VIX, 10Y Yields, Crude Oil)
+            vix_df = yf.Ticker("^VIX").history(period="1d")
+            vix = 20.0 if vix_df.empty else vix_df['Close'].iloc[-1]
+            
+            macro_yield = yf.Ticker("^TNX").history(period="1mo") 
+            macro_crude = yf.Ticker("BZ=F").history(period="1mo") 
+            
+            yield_close = macro_yield['Close'].iloc[-1] if not macro_yield.empty else 4.0
+            crude_close = macro_crude['Close'].iloc[-1] if not macro_crude.empty else 75.0
+                
+            # Fetch News
+            news_items = t.news
+            news_list = [n['title'] for n in news_items[:5]] if news_items else ["Market news steady."]
+            
+            # Fetch Options Data (PCR)
+            try:
+                expirations = t.options
+                if expirations:
+                    opt = t.option_chain(expirations[0])
+                    calls_vol = opt.calls['volume'].sum()
+                    puts_vol = opt.puts['volume'].sum()
+                    pcr = puts_vol / calls_vol if calls_vol > 0 else 1.0
+                else:
+                    pcr = 1.0
+            except:
+                pcr = 1.0
+                
+            return df, float(vix), info, news_list, pcr, 0.0, sector_df, sector_symbol, yield_close, crude_close
+            
+        except Exception as e:
+            print(f"Attempt {attempt+1} failed for {ticker}: {e}")
+            await asyncio.sleep(3) # Wait 3 seconds before retrying
+            
+    # Return empty structures if all attempts fail
+    return pd.DataFrame(), 20.0, {}, [], 1.0, 0.0, pd.DataFrame(), "^NSEI", 4.0, 75.0
 
 async def log_trade(ticker, decision, score, reason):
+    """Logs trading decisions to a local SQLite database."""
     async with aiosqlite.connect("trading.db") as db:
         await db.execute("CREATE TABLE IF NOT EXISTS logs (ticker, decision, score, reason, time)")
         await db.execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
