@@ -2,5 +2,7 @@ streamlit
 yfinance
 pandas
 pandas-ta
-vaderSentiment
 aiosqlite
+transformers
+torch
+openpyxl

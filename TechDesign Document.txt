@@ -1,0 +1,52 @@
+### Design Document
+
+## 1. System Overview
+The AI Trading Agent Dashboard is a modular, read-only decision support tool designed to evaluate equities. It acts as an orchestrator for four distinct analytical "agents," gathering data via the Yahoo Finance API, processing it through specific mathematical and NLP models, and synthesizing a final trade decision (BUY, SELL, HOLD, or DO_NOT_TRADE). 
+
+## 2. Architecture & Components
+
+### 2.1 The Coordinator / Frontend (`app.py`)
+* **Role:** Manages the user interface, coordinates asynchronous data fetching, aggregates agent scores, calculates risk brackets, and handles file I/O (CSV uploads, Excel downloads).
+* **Scoring Engine:** The final decision is calculated using a weighted matrix to ensure balanced trade setups:
+  * **35%** Technical Momentum
+  * **35%** Macro & Sector Correlation
+  * **20%** Fundamental Health
+  * **10%** Sentiment & Options Flow
+* **Risk Management Generator:** If a "BUY" signal is triggered, the coordinator uses the ATR provided by the Technical Agent to generate dynamic brackets:
+  * Stop Loss: `Entry - (2 * ATR)`
+  * Targets: `Entry + (2 * ATR)`, `+ (3 * ATR)`, `+ (4 * ATR)`
+
+### 2.2 Data Pipeline (`utils.py`)
+* **Role:** A centralized, asynchronous fetching module designed to pull all required datasets cleanly before agent execution.
+* **Data Sources:** 
+  * Price & Volume History (`yfinance.Ticker.history`)
+  * Financials (`yfinance.Ticker.info`)
+  * Market Benchmarks (VIX, Crude Oil futures, 10Y Treasury Yields)
+  * Sector Indices (Mapped via internal dictionary)
+  * Options Chains (for PCR calculation)
+  * News Headlines
+* **Logging:** Maintains an asynchronous local SQLite database (`trading.db`) to record historical decisions and the explainability strings for future backtesting.
+
+### 2.3 The Agent Cluster (`agents.py`)
+The system is divided into four isolated agents, each responsible for a specific market dimension.
+
+#### A. TechnicalAgent
+* **Core Metrics:** 14-period RSI (Relative Strength Index) and 14-period ATR (Average True Range).
+* **Logic:** Identifies standard overbought (>70) and oversold (<30) conditions. Calculates ATR to pass back to the coordinator for volatility-adjusted stop losses.
+
+#### B. FundamentalAgent
+* **Core Metrics:** Trailing P/E Ratio and Profit Margins.
+* **Logic:** Acts as a quantitative health check. Penalizes highly overvalued stocks (P/E > 40) or shrinking margins (< 5%), while rewarding value (P/E < 20) and strong profitability (> 15%).
+
+#### C. DeepSentimentAgent
+* **Core Metrics:** FinBERT NLP Sentiment, Put/Call Ratio (PCR), and Retail Social Momentum.
+* **Logic:** 
+  * Passes recent headlines through a pre-trained FinBERT LLM pipeline to categorize structural news sentiment accurately.
+  * Evaluates institutional positioning by calculating the volume ratio of puts to calls on the nearest options expiry chain (Fear > 1.2, Greed < 0.7).
+
+#### D. MacroSectorAgent
+* **Core Metrics:** Mansfield Relative Strength, VIX, Crude Oil, US 10-Year Yield.
+* **Logic:**
+  * **Systemic Override:** Immediately issues a "HALT" signal if the VIX exceeds 30, preventing trades during market panics.
+  * **Relative Strength:** Calculates a 20-day moving average of the Stock/Sector ratio to ensure the asset is outperforming its peers.
+  * **Inter-market Headwinds:** Applies score penalties if systemic risk factors (high crude, spiking yields) are present.
