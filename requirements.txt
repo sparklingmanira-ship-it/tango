@@ -5,4 +5,5 @@ pandas-ta
 aiosqlite
 transformers
 torch
+torchvision
 openpyxl
