@@ -1,15 +1,34 @@
 import yfinance as yf
-import aiosqlite
+import sqlite3
+import pandas as pd
 from datetime import datetime
 
-async def get_data(ticker):
+def get_data(ticker):
+    # Fetch historical data
     df = yf.download(ticker, period="1mo", interval="1d", progress=False)
-    vix = yf.download("^VIX", period="1d", progress=False)['Close'].iloc[-1]
-    return df, float(vix)
+    
+    # Fetch VIX and forcefully extract the raw float value
+    vix_data = yf.download("^VIX", period="1d", progress=False)
+    
+    try:
+        # Safely extract the last close price regardless of yfinance multi-index changes
+        vix_val = float(vix_data['Close'].to_numpy()[-1])
+    except Exception:
+        # Fallback in case of API failure
+        vix_val = 15.0 
+        
+    return df, vix_val
 
-async def log_trade(ticker, decision, score, reason):
-    async with aiosqlite.connect("trading.db") as db:
-        await db.execute("CREATE TABLE IF NOT EXISTS logs (ticker, decision, score, reason, time)")
-        await db.execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
-                         (ticker, decision, score, reason, datetime.now().isoformat()))
-        await db.commit()
+def log_trade(ticker, decision, score, reason):
+    # Standard synchronous SQLite connection
+    conn = sqlite3.connect("trading.db")
+    cursor = conn.cursor()
+    cursor.execute("CREATE TABLE IF NOT EXISTS logs (ticker, decision, score, reason, time)")
+    
+    # Convert dict/objects to string for safe database storage
+    safe_reason = str(reason)
+    
+    cursor.execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
+                   (ticker, decision, score, safe_reason, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
