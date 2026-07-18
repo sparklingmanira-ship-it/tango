@@ -5,6 +5,7 @@ import pandas as pd
 from datetime import datetime
 
 def get_sector_index(ticker):
+    """Maps tickers to their respective Nifty sector indices."""
     sector_map = {
         "RELIANCE.NS": "^CNXENERGY",
         "TCS.NS": "^CNXIT",
@@ -17,30 +18,26 @@ def get_sector_index(ticker):
     return sector_map.get(ticker, "^NSEI")
 
 async def get_data(ticker):
+    """
+    Fetches comprehensive market data with built-in retry logic.
+    """
     for attempt in range(3):
         try:
             t = yf.Ticker(ticker)
             df = t.history(period="3mo", interval="1d")
-            
-            # --- DEFENSIVE DATA LOADING ---
-            # info can sometimes be empty, use .get() safely
             info = t.info if t.info else {}
             
-            # News can be an empty list or missing keys, handle safely
+            # Defensive news loading
             news_items = t.news if t.news else []
-            news_list = []
-            for n in news_items:
-                # Use .get() to avoid 'title' KeyError
-                if isinstance(n, dict) and n.get('title'):
-                    news_list.append(n.get('title'))
-            
+            news_list = [n.get('title') for n in news_items if isinstance(n, dict) and n.get('title')]
             if not news_list:
                 news_list = ["No recent news available."]
             
-            # --- REMAINING DATA FETCH ---
+            # Fetch Sector Index
             sector_symbol = get_sector_index(ticker)
             sector_df = yf.Ticker(sector_symbol).history(period="3mo", interval="1d")
             
+            # Fetch Macro Benchmarks
             vix_df = yf.Ticker("^VIX").history(period="1d")
             vix = 20.0 if vix_df.empty else vix_df['Close'].iloc[-1]
             
@@ -50,7 +47,7 @@ async def get_data(ticker):
             yield_close = macro_yield['Close'].iloc[-1] if not macro_yield.empty else 4.0
             crude_close = macro_crude['Close'].iloc[-1] if not macro_crude.empty else 75.0
             
-            # Options chain (handle failure gracefully)
+            # Options chain
             pcr = 1.0
             try:
                 expirations = t.options
@@ -66,7 +63,14 @@ async def get_data(ticker):
             
         except Exception as e:
             print(f"Attempt {attempt+1} failed for {ticker}: {e}")
-            await asyncio.sleep(3) 
+            await asyncio.sleep(3)
             
-    # Return empty structures if all attempts fail
     return pd.DataFrame(), 20.0, {}, ["No data available"], 1.0, 0.0, pd.DataFrame(), "^NSEI", 4.0, 75.0
+
+async def log_trade(ticker, decision, score, reason):
+    """Logs trading decisions to a local SQLite database."""
+    async with aiosqlite.connect("trading.db") as db:
+        await db.execute("CREATE TABLE IF NOT EXISTS logs (ticker, decision, score, reason, time)")
+        await db.execute("INSERT INTO logs VALUES (?,?,?,?,?)", 
+                         (ticker, decision, score, reason, datetime.now().isoformat()))
+        await db.commit()
