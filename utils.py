@@ -3,8 +3,15 @@ import aiosqlite
 from datetime import datetime
 
 async def get_data(ticker):
-    df = yf.download(ticker, period="1mo", interval="1d", progress=False)
-    vix = yf.download("^VIX", period="1d", progress=False)['Close'].iloc[-1]
+    # yf.Ticker().history() returns a flat DataFrame, avoiding MultiIndex issues
+    df = yf.Ticker(ticker).history(period="1mo", interval="1d")
+    
+    vix_df = yf.Ticker("^VIX").history(period="1d")
+    if vix_df.empty:
+        vix = 20.0  # Fallback risk value if the API rate limits the VIX request
+    else:
+        vix = vix_df['Close'].iloc[-1]
+        
     return df, float(vix)
 
 async def log_trade(ticker, decision, score, reason):

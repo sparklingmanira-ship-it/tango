@@ -4,7 +4,14 @@ from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 class TechnicalAgent:
     def analyze(self, df):
+        # Gracefully handle empty dataframes from API rate limits
+        if df is None or df.empty:
+            return "HOLD", 0.0, "No price data available"
+            
         rsi = df.ta.rsi(length=14)
+        if rsi is None or rsi.dropna().empty:
+            return "HOLD", 0.0, "Insufficient data for RSI"
+            
         val = rsi.iloc[-1]
         if val < 30: return "BUY", 0.85, f"RSI {val:.2f} (Oversold)"
         if val > 70: return "SELL", 0.85, f"RSI {val:.2f} (Overbought)"
@@ -22,5 +29,5 @@ class SentimentAgent:
 
 class MacroRiskAgent:
     def analyze(self, vix):
-        if vix > 30: return "HALT", 1.0, f"VIX {vix} (Risk High)"
+        if vix > 30: return "HALT", 1.0, f"VIX {vix:.2f} (Risk High)"
         return "ALLOW", 0.0, "Stable"
