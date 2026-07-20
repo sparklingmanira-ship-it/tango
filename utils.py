@@ -1,84 +1,107 @@
 import yfinance as yf
+from yahooquery import Ticker as YQTicker
+import feedparser
+import urllib.parse
 import aiosqlite
 import asyncio
 import pandas as pd
 import random
-import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
-# --- CONFIGURATION ---
-EODHD_API_KEY = "6a5e561b47f852.19359616" 
-
-def get_sector_index(ticker):
-    """Maps tickers to their respective Nifty sector indices."""
+def get_sector_index(info):
+    """Maps dynamic sectors to their respective Nifty sector indices."""
+    sector = info.get('sector', '') if isinstance(info, dict) else ''
     sector_map = {
-        "RELIANCE.NS": "^CNXENERGY",
-        "TCS.NS": "^CNXIT",
-        "INFY.NS": "^CNXIT",
-        "HDFCBANK.NS": "^CNXBANK",
-        "ICICIBANK.NS": "^CNXBANK",
-        "MARUTI.NS": "^CNXAUTO",
-        "TATAMOTORS.NS": "^CNXAUTO"
+        "Technology": "^CNXIT",
+        "Financial Services": "^CNXBANK",
+        "Consumer Cyclical": "^CNXAUTO", 
+        "Consumer Defensive": "^CNXFMCG",
+        "Energy": "^CNXENERGY",
+        "Basic Materials": "^CNXMETAL",
+        "Healthcare": "^CNXPHARMA",
+        "Industrials": "^CNXINFRA", 
+        "Real Estate": "^CNXREALTY",
+        "Communication Services": "^CNXMEDIA",
+        "Utilities": "^CNXENERGY"
     }
-    return sector_map.get(ticker, "^NSEI")
+    return sector_map.get(sector, "^NSEI")
 
-async def fetch_eodhd_news(ticker):
-    """Fetches news independently so yfinance errors do not block news sentiment."""
-    end_date = datetime.now().strftime("%Y-%m-%d")
-    start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-    
-    news_url = (
-        f"https://eodhd.com/api/news?"
-        f"s={ticker}&"
-        f"from={start_date}&"
-        f"to={end_date}&"
-        f"limit=10&"
-        f"api_token={EODHD_API_KEY}&"
-        f"fmt=json"
-    )
+async def fetch_rss_news(ticker):
+    """Fetches unlimited free news via Google News RSS (No API Key Required)."""
+    # Clean the ticker (e.g., 'RELIANCE.NS' -> 'RELIANCE') to get better news hits
+    clean_ticker = ticker.split('.')[0]
+    query = urllib.parse.quote(f"{clean_ticker} stock")
+    url = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
     
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        news_response = requests.get(news_url, headers=headers, timeout=5).json()
-        if isinstance(news_response, list) and len(news_response) > 0:
-            titles = [article.get('title') for article in news_response if article.get('title')]
-            if titles:
-                return titles
+        # Parse the XML RSS feed
+        feed = feedparser.parse(url)
+        # Extract the top 10 most recent headlines
+        titles = [entry.title for entry in feed.entries][:10]
+        if titles:
+            return titles
     except Exception as e:
-        print(f"EODHD News API Error for {ticker}: {e}")
+        print(f"Google News RSS Error for {ticker}: {e}")
         
     return ["No recent news available."]
 
 async def get_data(ticker):
     """
-    Fetches market data and news with isolated error handling.
+    Fetches market data, reconstructing the info dictionary using YahooQuery.
     """
-    # 1. ALWAYS fetch news independently first
-    news_list = await fetch_eodhd_news(ticker)
+    # 1. Fetch News (Unlimited Free RSS)
+    news_list = await fetch_rss_news(ticker)
     
     # Defaults
     df = pd.DataFrame()
     vix = 20.0
     info = {}
     pcr = 1.0
-    sector_symbol = get_sector_index(ticker)
     sector_df = pd.DataFrame()
     yield_close = 4.0
     crude_close = 75.0
 
-    # 2. Fetch main price data with retries
+    # 2. Fetch main price data via yfinance
     for attempt in range(3):
         try:
             t = yf.Ticker(ticker)
             df = t.history(period="3mo", interval="1d")
             if not df.empty:
-                info = t.info if t.info else {}
                 break
         except Exception as e:
             print(f"yfinance price attempt {attempt+1} failed for {ticker}: {e}")
             await asyncio.sleep(2)
             
-    # 3. Isolated Macro Data fetches (failures won't break the whole app)
+    # 3. Fetch Deep Fundamentals via YahooQuery (Bypasses yfinance info limits)
+    try:
+        yq_t = YQTicker(ticker)
+        
+        # YahooQuery splits data into specific endpoints
+        yq_summary = yq_t.summary_detail.get(ticker, {})
+        yq_fin = yq_t.financial_data.get(ticker, {})
+        yq_profile = yq_t.summary_profile.get(ticker, {})
+        yq_holders = yq_t.major_holders_breakdown.get(ticker, {})
+        
+        # Reconstruct the dictionary to perfectly match the old yfinance schema
+        if isinstance(yq_summary, dict) and isinstance(yq_fin, dict):
+            info = {
+                'sector': yq_profile.get('sector', 'Unknown') if isinstance(yq_profile, dict) else 'Unknown',
+                'trailingPE': yq_summary.get('trailingPE'),
+                'priceToBook': yq_fin.get('priceToBook', yq_summary.get('priceToBook')),
+                'returnOnEquity': yq_fin.get('returnOnEquity'),
+                'debtToEquity': yq_fin.get('debtToEquity'),
+                'heldPercentInstitutions': yq_holders.get('institutionsPercentHeld') if isinstance(yq_holders, dict) else None,
+                'shortPercentOfFloat': yq_summary.get('shortPercentOfFloat'),
+                'targetMeanPrice': yq_fin.get('targetMeanPrice'),
+                'recommendationMean': yq_fin.get('recommendationMean')
+            }
+    except Exception as e:
+        print(f"YahooQuery Error for {ticker}: {e}")
+
+    # Resolve sector index
+    sector_symbol = get_sector_index(info)
+
+    # 4. Isolated Macro Data fetches
     try:
         vix_df = yf.Ticker("^VIX").history(period="1d")
         if not vix_df.empty: vix = float(vix_df['Close'].iloc[-1])
