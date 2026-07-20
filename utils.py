@@ -13,7 +13,7 @@ def get_sector_index(info):
     sector = info.get('sector', '') if isinstance(info, dict) else ''
     sector_map = {
         "Technology": "^CNXIT",
-        "Financial Services": "^CNXBANK",
+        "Financial Services": "^NSEBANK",
         "Consumer Cyclical": "^CNXAUTO", 
         "Consumer Defensive": "^CNXFMCG",
         "Energy": "^CNXENERGY",
