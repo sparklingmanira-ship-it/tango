@@ -34,9 +34,7 @@ async def fetch_rss_news(ticker):
     url = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
     
     try:
-        # Parse the XML RSS feed
         feed = feedparser.parse(url)
-        # Extract the top 10 most recent headlines
         titles = [entry.title for entry in feed.entries][:10]
         if titles:
             return titles
@@ -47,7 +45,7 @@ async def fetch_rss_news(ticker):
 
 async def get_data(ticker):
     """
-    Fetches market data, reconstructing the info dictionary using YahooQuery.
+    Fetches market data, reconstructing the info dictionary safely using YahooQuery.
     """
     # 1. Fetch News (Unlimited Free RSS)
     news_list = await fetch_rss_news(ticker)
@@ -61,7 +59,7 @@ async def get_data(ticker):
     yield_close = 4.0
     crude_close = 75.0
 
-    # 2. Fetch main price data via yfinance
+    # 2. Fetch main price data via yfinance with retries
     for attempt in range(3):
         try:
             t = yf.Ticker(ticker)
@@ -72,33 +70,60 @@ async def get_data(ticker):
             print(f"yfinance price attempt {attempt+1} failed for {ticker}: {e}")
             await asyncio.sleep(2)
             
-    # 3. Fetch Deep Fundamentals via YahooQuery (Bypasses yfinance info limits)
+    # 3. Fetch Deep Fundamentals via YahooQuery (Bulletproof Extraction)
     try:
         yq_t = YQTicker(ticker)
         
-        # YahooQuery splits data into specific endpoints
-        yq_summary = yq_t.summary_detail.get(ticker, {})
-        yq_fin = yq_t.financial_data.get(ticker, {})
-        yq_profile = yq_t.summary_profile.get(ticker, {})
-        yq_holders = yq_t.major_holders_breakdown.get(ticker, {})
-        
-        # Reconstruct the dictionary to perfectly match the old yfinance schema
-        if isinstance(yq_summary, dict) and isinstance(yq_fin, dict):
-            info = {
-                'sector': yq_profile.get('sector', 'Unknown') if isinstance(yq_profile, dict) else 'Unknown',
-                'trailingPE': yq_summary.get('trailingPE'),
-                'priceToBook': yq_fin.get('priceToBook', yq_summary.get('priceToBook')),
-                'returnOnEquity': yq_fin.get('returnOnEquity'),
-                'debtToEquity': yq_fin.get('debtToEquity'),
-                'heldPercentInstitutions': yq_holders.get('institutionsPercentHeld') if isinstance(yq_holders, dict) else None,
-                'shortPercentOfFloat': yq_summary.get('shortPercentOfFloat'),
-                'targetMeanPrice': yq_fin.get('targetMeanPrice'),
-                'recommendationMean': yq_fin.get('recommendationMean')
-            }
-    except Exception as e:
-        print(f"YahooQuery Error for {ticker}: {e}")
+        # Safely attempt to extract each module individually
+        yq_summary = {}
+        yq_fin = {}
+        yq_profile = {}
+        yq_key_stats = {}
+        yq_holders = {}
 
-    # Resolve sector index
+        try:
+            if hasattr(yq_t, 'summary_detail') and isinstance(yq_t.summary_detail, dict):
+                yq_summary = yq_t.summary_detail.get(ticker, {})
+        except Exception: pass
+
+        try:
+            if hasattr(yq_t, 'financial_data') and isinstance(yq_t.financial_data, dict):
+                yq_fin = yq_t.financial_data.get(ticker, {})
+        except Exception: pass
+
+        try:
+            if hasattr(yq_t, 'summary_profile') and isinstance(yq_t.summary_profile, dict):
+                yq_profile = yq_t.summary_profile.get(ticker, {})
+        except Exception: pass
+
+        try:
+            if hasattr(yq_t, 'key_stats') and isinstance(yq_t.key_stats, dict):
+                yq_key_stats = yq_t.key_stats.get(ticker, {})
+        except Exception: pass
+        
+        try:
+            if hasattr(yq_t, 'institution_ownership') and isinstance(yq_t.institution_ownership, dict):
+                yq_holders = yq_t.institution_ownership.get(ticker, {})
+            elif hasattr(yq_t, 'major_holders_breakdown') and isinstance(yq_t.major_holders_breakdown, dict):
+                 yq_holders = yq_t.major_holders_breakdown.get(ticker, {})
+        except Exception: pass
+
+        # Reconstruct the info dictionary mapped exactly to what the agents expect
+        info = {
+            'sector': yq_profile.get('sector', 'Unknown'),
+            'trailingPE': yq_summary.get('trailingPE', yq_key_stats.get('trailingPE')),
+            'priceToBook': yq_fin.get('priceToBook', yq_key_stats.get('priceToBook')),
+            'returnOnEquity': yq_fin.get('returnOnEquity', yq_key_stats.get('returnOnEquity')),
+            'debtToEquity': yq_fin.get('debtToEquity', yq_key_stats.get('debtToEquity')),
+            'heldPercentInstitutions': yq_holders.get('institutionsPercentHeld', yq_key_stats.get('heldPercentInstitutions')),
+            'shortPercentOfFloat': yq_key_stats.get('shortPercentOfFloat', yq_summary.get('shortPercentOfFloat')),
+            'targetMeanPrice': yq_fin.get('targetMeanPrice'),
+            'recommendationMean': yq_fin.get('recommendationMean')
+        }
+    except Exception as e:
+        print(f"Total YahooQuery Failure for {ticker}: {e}")
+
+    # Resolve sector index dynamically
     sector_symbol = get_sector_index(info)
 
     # 4. Isolated Macro Data fetches
