@@ -7,7 +7,7 @@ import requests
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
-EODHD_API_KEY = "6a5e561b47f852.19359616" # Replace with your actual EODHD API token
+EODHD_API_KEY = "6a5e561b47f852.19359616" 
 
 def get_sector_index(ticker):
     """Maps tickers to their respective Nifty sector indices."""
@@ -22,78 +22,83 @@ def get_sector_index(ticker):
     }
     return sector_map.get(ticker, "^NSEI")
 
+async def fetch_eodhd_news(ticker):
+    """Fetches news independently so yfinance errors do not block news sentiment."""
+    end_date = datetime.now().strftime("%Y-%m-%d")
+    start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+    
+    news_url = (
+        f"https://eodhd.com/api/news?"
+        f"s={ticker}&"
+        f"from={start_date}&"
+        f"to={end_date}&"
+        f"limit=10&"
+        f"api_token={EODHD_API_KEY}&"
+        f"fmt=json"
+    )
+    
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        news_response = requests.get(news_url, headers=headers, timeout=5).json()
+        if isinstance(news_response, list) and len(news_response) > 0:
+            titles = [article.get('title') for article in news_response if article.get('title')]
+            if titles:
+                return titles
+    except Exception as e:
+        print(f"EODHD News API Error for {ticker}: {e}")
+        
+    return ["No recent news available."]
+
 async def get_data(ticker):
     """
-    Fetches comprehensive market data with built-in retry logic.
+    Fetches market data and news with isolated error handling.
     """
-    # Randomize delay to avoid API hammering
-    await asyncio.sleep(random.uniform(2, 5))
+    # 1. ALWAYS fetch news independently first
+    news_list = await fetch_eodhd_news(ticker)
     
+    # Defaults
+    df = pd.DataFrame()
+    vix = 20.0
+    info = {}
+    pcr = 1.0
+    sector_symbol = get_sector_index(ticker)
+    sector_df = pd.DataFrame()
+    yield_close = 4.0
+    crude_close = 75.0
+
+    # 2. Fetch main price data with retries
     for attempt in range(3):
         try:
             t = yf.Ticker(ticker)
-            # Fetch Price Data
             df = t.history(period="3mo", interval="1d")
-            info = t.info if t.info else {}
-            
-            # --- EODHD NEWS INTEGRATION ---
-            end_date = datetime.now().strftime("%Y-%m-%d")
-            start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
-            
-            # The 's' parameter perfectly accepts standard tickers like AAPL.US or RELIANCE.NS
-            news_url = (
-                f"https://eodhd.com/api/news?"
-                f"s={ticker}&"
-                f"from={start_date}&"
-                f"to={end_date}&"
-                f"limit=10&"
-                f"api_token={EODHD_API_KEY}&"
-                f"fmt=json"
-            )
-            
-            try:
-                news_response = requests.get(news_url, timeout=5).json()
-                if isinstance(news_response, list) and len(news_response) > 0:
-                    news_list = [article.get('title') for article in news_response if article.get('title')]
-                else:
-                    news_list = ["No recent news available."]
-            except Exception as e:
-                print(f"EODHD API Error for {ticker}: {e}")
-                news_list = ["No recent news available."]
-            
-            # Fetch Sector Index
-            sector_symbol = get_sector_index(ticker)
-            sector_df = yf.Ticker(sector_symbol).history(period="3mo", interval="1d")
-            
-            # Fetch Macro Benchmarks
-            vix_df = yf.Ticker("^VIX").history(period="1d")
-            vix = 20.0 if vix_df.empty else vix_df['Close'].iloc[-1]
-            
-            macro_yield = yf.Ticker("^TNX").history(period="1mo") 
-            macro_crude = yf.Ticker("BZ=F").history(period="1mo") 
-            
-            yield_close = macro_yield['Close'].iloc[-1] if not macro_yield.empty else 4.0
-            crude_close = macro_crude['Close'].iloc[-1] if not macro_crude.empty else 75.0
-            
-            # Options chain
-            pcr = 1.0
-            try:
-                expirations = t.options
-                if expirations:
-                    opt = t.option_chain(expirations[0])
-                    calls_vol = opt.calls['volume'].sum()
-                    puts_vol = opt.puts['volume'].sum()
-                    pcr = puts_vol / calls_vol if calls_vol > 0 else 1.0
-            except:
-                pcr = 1.0
-                
-            return df, float(vix), info, news_list, pcr, 0.0, sector_df, sector_symbol, yield_close, crude_close
-            
+            if not df.empty:
+                info = t.info if t.info else {}
+                break
         except Exception as e:
-            print(f"Attempt {attempt+1} failed for {ticker}: {e}")
-            await asyncio.sleep(10)
+            print(f"yfinance price attempt {attempt+1} failed for {ticker}: {e}")
+            await asyncio.sleep(2)
             
-    return pd.DataFrame(), 20.0, {}, ["No data available"], 1.0, 0.0, pd.DataFrame(), "^NSEI", 4.0, 75.0
+    # 3. Isolated Macro Data fetches (failures won't break the whole app)
+    try:
+        vix_df = yf.Ticker("^VIX").history(period="1d")
+        if not vix_df.empty: vix = float(vix_df['Close'].iloc[-1])
+    except Exception: pass
+
+    try:
+        sector_df = yf.Ticker(sector_symbol).history(period="3mo", interval="1d")
+    except Exception: pass
+
+    try:
+        macro_yield = yf.Ticker("^TNX").history(period="1mo") 
+        if not macro_yield.empty: yield_close = float(macro_yield['Close'].iloc[-1])
+    except Exception: pass
+
+    try:
+        macro_crude = yf.Ticker("BZ=F").history(period="1mo") 
+        if not macro_crude.empty: crude_close = float(macro_crude['Close'].iloc[-1])
+    except Exception: pass
+
+    return df, vix, info, news_list, pcr, 0.0, sector_df, sector_symbol, yield_close, crude_close
 
 async def log_trade(ticker, decision, score, reason):
     """Logs trading decisions to a local SQLite database."""
