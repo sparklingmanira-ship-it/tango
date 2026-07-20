@@ -48,7 +48,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-st.title("📊 Tango Pro-Screener")
+st.title("📈 Tango Pro-Screener")
 st.markdown("### Institutional Quantitative Cluster Framework (7-Factor)")
 
 def export_to_excel(df):
@@ -137,7 +137,7 @@ with col2:
                         <strong style="color: #10B981;">🟢 BULLISH</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Tailwind / Accumulation</span>
                     </div>
                     <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #F59E0B; flex: 1; min-width: 140px;">
-                        <strong style="color: #F59E0B;">⚪ NEUTRAL</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Stable / Fair Value</span>
+                        <strong style="color: #F59E0B;">🟡 NEUTRAL</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Stable / Fair Value</span>
                     </div>
                     <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #EF4444; flex: 1; min-width: 140px;">
                         <strong style="color: #EF4444;">🔴 BEARISH</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Headwind / Distribution</span>
@@ -176,7 +176,7 @@ with col2:
                 st.dataframe(
                     results_df, 
                     hide_index=True,
-                    use_container_width=True,
+                    width="stretch",
                     column_config={
                         "Factor / Parameter": st.column_config.TextColumn("Factor / Parameter", width="medium"),
                         "Signal": st.column_config.TextColumn("Signal", width="small"),
