@@ -28,7 +28,6 @@ def get_sector_index(info):
 
 async def fetch_rss_news(ticker):
     """Fetches unlimited free news via Google News RSS (No API Key Required)."""
-    # Clean the ticker (e.g., 'RELIANCE.NS' -> 'RELIANCE') to get better news hits
     clean_ticker = ticker.split('.')[0]
     query = urllib.parse.quote(f"{clean_ticker} stock")
     url = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
@@ -43,38 +42,62 @@ async def fetch_rss_news(ticker):
         
     return ["No recent news available."]
 
+async def fetch_price_history(ticker, period="3mo", interval="1d"):
+    """
+    Dual-Engine Price Fetcher: Attempts yfinance first. 
+    If rate-limited or empty, falls back to yahooquery.
+    """
+    for attempt in range(3):
+        # Engine 1: Try yfinance
+        try:
+            t = yf.Ticker(ticker)
+            df = t.history(period=period, interval=interval)
+            if df is not None and not df.empty:
+                return df
+        except Exception as e:
+            print(f"yfinance price error for {ticker} (Attempt {attempt+1}): {e}")
+
+        # Engine 2: Fallback to yahooquery
+        try:
+            yq_t = YQTicker(ticker)
+            yq_df = yq_t.history(period=period, interval=interval)
+            
+            # Ensure the response is a valid dataframe and not a string error code
+            if isinstance(yq_df, pd.DataFrame) and not yq_df.empty:
+                # Reformat YahooQuery's multi-index to match yfinance exactly
+                if 'symbol' in yq_df.index.names:
+                    yq_df = yq_df.reset_index(level='symbol', drop=True)
+                
+                # Standardize column headers for the pandas-ta TechnicalAgent
+                yq_df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
+                return yq_df
+        except Exception as e:
+            print(f"yahooquery price error for {ticker} (Attempt {attempt+1}): {e}")
+
+        await asyncio.sleep(2)
+        
+    return pd.DataFrame()
+
 async def get_data(ticker):
     """
     Fetches market data, reconstructing the info dictionary safely using YahooQuery.
     """
-    # 1. Fetch News (Unlimited Free RSS)
     news_list = await fetch_rss_news(ticker)
     
     # Defaults
-    df = pd.DataFrame()
     vix = 20.0
     info = {}
     pcr = 1.0
-    sector_df = pd.DataFrame()
     yield_close = 4.0
     crude_close = 75.0
 
-    # 2. Fetch main price data via yfinance with retries
-    for attempt in range(3):
-        try:
-            t = yf.Ticker(ticker)
-            df = t.history(period="3mo", interval="1d")
-            if not df.empty:
-                break
-        except Exception as e:
-            print(f"yfinance price attempt {attempt+1} failed for {ticker}: {e}")
-            await asyncio.sleep(2)
+    # 1. Fetch main price data using the new Dual-Engine helper
+    df = await fetch_price_history(ticker, period="3mo", interval="1d")
             
-    # 3. Fetch Deep Fundamentals via YahooQuery (Bulletproof Extraction)
+    # 2. Fetch Deep Fundamentals via YahooQuery (Bulletproof Extraction)
     try:
         yq_t = YQTicker(ticker)
         
-        # Safely attempt to extract each module individually
         yq_summary = {}
         yq_fin = {}
         yq_profile = {}
@@ -108,7 +131,6 @@ async def get_data(ticker):
                  yq_holders = yq_t.major_holders_breakdown.get(ticker, {})
         except Exception: pass
 
-        # Reconstruct the info dictionary mapped exactly to what the agents expect
         info = {
             'sector': yq_profile.get('sector', 'Unknown'),
             'trailingPE': yq_summary.get('trailingPE', yq_key_stats.get('trailingPE')),
@@ -123,28 +145,19 @@ async def get_data(ticker):
     except Exception as e:
         print(f"Total YahooQuery Failure for {ticker}: {e}")
 
-    # Resolve sector index dynamically
     sector_symbol = get_sector_index(info)
 
-    # 4. Isolated Macro Data fetches
-    try:
-        vix_df = yf.Ticker("^VIX").history(period="1d")
-        if not vix_df.empty: vix = float(vix_df['Close'].iloc[-1])
-    except Exception: pass
+    # 3. Isolated Macro Data fetches (Also secured via Dual-Engine)
+    vix_df = await fetch_price_history("^VIX", period="1d")
+    if not vix_df.empty: vix = float(vix_df['Close'].iloc[-1])
 
-    try:
-        sector_df = yf.Ticker(sector_symbol).history(period="3mo", interval="1d")
-    except Exception: pass
+    sector_df = await fetch_price_history(sector_symbol, period="3mo")
 
-    try:
-        macro_yield = yf.Ticker("^TNX").history(period="1mo") 
-        if not macro_yield.empty: yield_close = float(macro_yield['Close'].iloc[-1])
-    except Exception: pass
+    macro_yield = await fetch_price_history("^TNX", period="1mo")
+    if not macro_yield.empty: yield_close = float(macro_yield['Close'].iloc[-1])
 
-    try:
-        macro_crude = yf.Ticker("BZ=F").history(period="1mo") 
-        if not macro_crude.empty: crude_close = float(macro_crude['Close'].iloc[-1])
-    except Exception: pass
+    macro_crude = await fetch_price_history("BZ=F", period="1mo")
+    if not macro_crude.empty: crude_close = float(macro_crude['Close'].iloc[-1])
 
     return df, vix, info, news_list, pcr, 0.0, sector_df, sector_symbol, yield_close, crude_close
 
