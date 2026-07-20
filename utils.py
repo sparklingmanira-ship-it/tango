@@ -7,7 +7,7 @@ import requests
 from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
-EODHD_API_KEY = 6a5e561b47f852.19359616 # Replace with your actual EODHD API token
+EODHD_API_KEY = "6a5e561b47f852.19359616" # Replace with your actual EODHD API token
 
 def get_sector_index(ticker):
     """Maps tickers to their respective Nifty sector indices."""
