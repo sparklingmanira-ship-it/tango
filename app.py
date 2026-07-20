@@ -20,6 +20,7 @@ st.markdown("""
     h2, h3, h4, h5, h6 { color: #94A3B8 !important; }
     p, span, label { color: #E2E8F0 !important; }
     
+    /* High-Contrast Metric Cards */
     div[data-testid="metric-container"] {
         background-color: #1E293B !important; 
         padding: 18px; border-radius: 12px; border: 1px solid #334155 !important;
@@ -28,14 +29,17 @@ st.markdown("""
     div[data-testid="metric-container"] label { color: #94A3B8 !important; font-size: 0.9rem !important; }
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #F8FAFC !important; font-weight: bold !important; }
     
+    /* Form Controls */
     div[data-baseweb="select"] > div, div[data-baseweb="input"] > div {
         background-color: #1E293B !important; color: #F8FAFC !important; border-color: #334155 !important;
     }
     div[role="option"] { background-color: #1E293B !important; color: #F8FAFC !important; }
     .stCheckbox label { color: #F1F5F9 !important; }
     
+    /* Dataframe Container */
     div[data-testid="stDataFrame"] { background-color: #1E293B !important; border: 1px solid #334155 !important; border-radius: 8px; padding: 8px; }
     
+    /* Buttons */
     .stButton > button {
         background-color: #0284C7 !important; color: #FFFFFF !important; border: none !important;
         font-weight: bold !important; border-radius: 6px !important; padding: 8px 16px !important;
@@ -115,6 +119,7 @@ with col2:
                     if sig in ["SELL", "BEARISH"]: return -1
                     return 0 
                 
+                # Reweighted 7-Factor aggregation
                 score = (map_signal(t_sig) * 0.15 + 
                          map_signal(mom_sig) * 0.15 + 
                          map_signal(m_sig) * 0.15 + 
@@ -125,13 +130,6 @@ with col2:
                          
                 decision = "BUY" if score > 0.25 else "SELL" if score < -0.25 else "HOLD"
                 
-                # Helper function for grid colorization
-                def colorize(sig):
-                    if sig in ["BUY", "BULLISH"]: return f"🟢 {sig}"
-                    if sig in ["SELL", "BEARISH"]: return f"🔴 {sig}"
-                    if sig == "HALT": return f"🛑 {sig}"
-                    return f"⚪ {sig}"
-
                 # --- RISK METER / LEGEND UI ---
                 st.markdown("""
                 <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
@@ -152,24 +150,24 @@ with col2:
                 m1.metric("Ticker", selected_ticker)
                 
                 if decision == "BUY":
-                    m2.metric("Decision", colorize(decision), delta="Positive Expectancy", delta_color="normal")
+                    m2.metric("Decision", decision, delta="Positive Expectancy", delta_color="normal")
                 elif decision == "SELL":
-                    m2.metric("Decision", colorize(decision), delta="Negative Risk", delta_color="inverse")
+                    m2.metric("Decision", decision, delta="Negative Risk", delta_color="inverse")
                 else:
-                    m2.metric("Decision", colorize(decision), delta="Flat Regime", delta_color="off")
+                    m2.metric("Decision", decision, delta="Flat Regime", delta_color="off")
                     
                 m3.metric("Entry Price", f"₹{round(current_price, 2)}" if current_price > 0 else "N/A")
                 
-                # --- COLORIZED ROW-BASED PARAMETER GRID ---
+                # --- ROW-BASED PARAMETER GRID (Transposed View) ---
                 rows = [
-                    {"Factor / Parameter": "Trade Execution", "Signal": colorize(decision), "Detailed Analysis": f"Stop Loss: ₹{current_price - (2*current_atr):.2f}" if current_atr > 0 else "N/A"},
-                    {"Factor / Parameter": "1. Technical (RSI)", "Signal": colorize(t_sig), "Detailed Analysis": t_res},
-                    {"Factor / Parameter": "2. Momentum (1M/3M)", "Signal": colorize(mom_sig), "Detailed Analysis": mom_res},
-                    {"Factor / Parameter": "3. Value (P/E, P/B)", "Signal": colorize(f_sig), "Detailed Analysis": f_res},
-                    {"Factor / Parameter": "4. Quality (ROE, D/E)", "Signal": colorize(q_sig), "Detailed Analysis": q_res},
-                    {"Factor / Parameter": "5. Flow & Liquidity", "Signal": colorize(micro_sig), "Detailed Analysis": micro_res},
-                    {"Factor / Parameter": "6. Macro & Correlation", "Signal": colorize(m_sig), "Detailed Analysis": m_res},
-                    {"Factor / Parameter": "7. Sentiment (FinBERT)", "Signal": colorize(s_sig), "Detailed Analysis": s_res},
+                    {"Factor / Parameter": "Trade Execution", "Signal": decision, "Detailed Analysis": f"Composite Score: {score:.2f} | Stop Loss: ₹{current_price - (2*current_atr):.2f}" if current_atr > 0 else "N/A"},
+                    {"Factor / Parameter": "1. Technical (RSI)", "Signal": t_sig, "Detailed Analysis": t_res},
+                    {"Factor / Parameter": "2. Momentum (1M/3M)", "Signal": mom_sig, "Detailed Analysis": mom_res},
+                    {"Factor / Parameter": "3. Value (P/E, P/B)", "Signal": f_sig, "Detailed Analysis": f_res},
+                    {"Factor / Parameter": "4. Quality (ROE, D/E)", "Signal": q_sig, "Detailed Analysis": q_res},
+                    {"Factor / Parameter": "5. Flow & Liquidity", "Signal": micro_sig, "Detailed Analysis": micro_res},
+                    {"Factor / Parameter": "6. Macro & Correlation", "Signal": m_sig, "Detailed Analysis": m_res},
+                    {"Factor / Parameter": "7. Sentiment (FinBERT)", "Signal": s_sig, "Detailed Analysis": s_res},
                 ]
                 
                 results_df = pd.DataFrame(rows)
