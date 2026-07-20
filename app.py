@@ -132,33 +132,20 @@ with col2:
                     if sig == "HALT": return f"🛑 {sig}"
                     return f"⚪ {sig}"
 
-                # Calculate the Risk Meter pointer position (Converts -1.0 to 1.0 into a 0% to 100% scale)
-                pointer_pct = max(0, min(100, ((score + 1.0) / 2.0) * 100))
-                
-                # --- DYNAMIC HTML RISK METER ---
-                dial_html = f"""
-                <div style="margin-bottom: 25px; background-color: #1E293B; padding: 25px; border-radius: 12px; border: 1px solid #334155; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);">
-                    <h4 style="color: #F8FAFC; margin-top: 0; margin-bottom: 25px; font-size: 1.1rem; text-align: center;">Composite Score Risk Meter</h4>
-                    
-                    <div style="position: relative; width: 100%; height: 25px; background: linear-gradient(to right, #EF4444 0%, #F59E0B 50%, #10B981 100%); border-radius: 15px;">
-                        <!-- Dynamic Indicator Marker -->
-                        <div style="position: absolute; top: -15px; left: calc({pointer_pct}% - 12px); width: 24px; display: flex; flex-direction: column; align-items: center;">
-                            <div style="width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent; border-top: 18px solid #FFFFFF; filter: drop-shadow(0px 2px 2px rgba(0,0,0,0.5));"></div>
-                        </div>
+                # --- RISK METER / LEGEND UI ---
+                st.markdown("""
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+                    <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #10B981; flex: 1; min-width: 140px;">
+                        <strong style="color: #10B981;">🟢 BULLISH</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Tailwind / Accumulation</span>
                     </div>
-                    
-                    <div style="display: flex; justify-content: space-between; margin-top: 20px; color: #94A3B8; font-size: 0.85rem; font-weight: 700;">
-                        <span style="color: #EF4444;">-1.0 (Heavy Dist/Bearish)</span>
-                        <span style="color: #F59E0B;">0.0 (Neutral/Fair Value)</span>
-                        <span style="color: #10B981;">+1.0 (Heavy Acc/Bullish)</span>
+                    <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #F59E0B; flex: 1; min-width: 140px;">
+                        <strong style="color: #F59E0B;">⚪ NEUTRAL</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Stable / Fair Value</span>
                     </div>
-                    
-                    <div style="text-align: center; margin-top: 15px; font-size: 1.5rem; color: #38BDF8; font-weight: 800;">
-                        Current Score: {score:.2f}
+                    <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #EF4444; flex: 1; min-width: 140px;">
+                        <strong style="color: #EF4444;">🔴 BEARISH</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Headwind / Distribution</span>
                     </div>
                 </div>
-                """
-                st.markdown(dial_html, unsafe_allow_html=True)
+                """, unsafe_allow_html=True)
                 
                 # Top Metrics Display
                 m1, m2, m3 = st.columns(3)
