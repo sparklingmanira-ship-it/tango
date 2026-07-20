@@ -19,6 +19,8 @@ st.markdown("""
     h1 { color: #38BDF8 !important; font-family: 'Helvetica', sans-serif; font-weight: 700; }
     h2, h3, h4, h5, h6 { color: #94A3B8 !important; }
     p, span, label { color: #E2E8F0 !important; }
+    
+    /* High-Contrast Metric Cards */
     div[data-testid="metric-container"] {
         background-color: #1E293B !important; 
         padding: 18px; border-radius: 12px; border: 1px solid #334155 !important;
@@ -26,12 +28,18 @@ st.markdown("""
     }
     div[data-testid="metric-container"] label { color: #94A3B8 !important; font-size: 0.9rem !important; }
     div[data-testid="metric-container"] div[data-testid="stMetricValue"] { color: #F8FAFC !important; font-weight: bold !important; }
+    
+    /* Form Controls */
     div[data-baseweb="select"] > div, div[data-baseweb="input"] > div {
         background-color: #1E293B !important; color: #F8FAFC !important; border-color: #334155 !important;
     }
     div[role="option"] { background-color: #1E293B !important; color: #F8FAFC !important; }
     .stCheckbox label { color: #F1F5F9 !important; }
+    
+    /* Dataframe Container */
     div[data-testid="stDataFrame"] { background-color: #1E293B !important; border: 1px solid #334155 !important; border-radius: 8px; padding: 8px; }
+    
+    /* Buttons */
     .stButton > button {
         background-color: #0284C7 !important; color: #FFFFFF !important; border: none !important;
         font-weight: bold !important; border-radius: 6px !important; padding: 8px 16px !important;
@@ -46,7 +54,7 @@ st.markdown("### Institutional Quantitative Cluster Framework (7-Factor)")
 def export_to_excel(df):
     wb = Workbook()
     ws = wb.active
-    ws.title = "Recommendation"
+    ws.title = "Factor Breakdown"
     header_fill = PatternFill(start_color="2B3A42", end_color="2B3A42", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True)
     
@@ -58,7 +66,9 @@ def export_to_excel(df):
                 cell.font = header_font
                 cell.alignment = Alignment(horizontal="center")
     
-    ws.column_dimensions['H'].width = 100
+    ws.column_dimensions['A'].width = 25
+    ws.column_dimensions['B'].width = 18
+    ws.column_dimensions['C'].width = 80
     buffer = io.BytesIO()
     wb.save(buffer)
     buffer.seek(0)
@@ -120,27 +130,58 @@ with col2:
                          
                 decision = "BUY" if score > 0.25 else "SELL" if score < -0.25 else "HOLD"
                 
-                explanation = f"Tech: {t_res} | Mom: {mom_res} | Value: {f_res} | Qual: {q_res} | Flow: {micro_res} | Macro: {m_res} | Sent: {s_res}"
+                # --- RISK METER / LEGEND UI ---
+                st.markdown("""
+                <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 20px;">
+                    <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #10B981; flex: 1; min-width: 140px;">
+                        <strong style="color: #10B981;">🟢 BULLISH</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Tailwind / Accumulation</span>
+                    </div>
+                    <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #F59E0B; flex: 1; min-width: 140px;">
+                        <strong style="color: #F59E0B;">⚪ NEUTRAL</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Stable / Fair Value</span>
+                    </div>
+                    <div style="background-color: #1E293B; padding: 10px 14px; border-radius: 8px; border-left: 5px solid #EF4444; flex: 1; min-width: 140px;">
+                        <strong style="color: #EF4444;">🔴 BEARISH</strong><br><span style="color: #94A3B8; font-size: 0.8rem;">Headwind / Distribution</span>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                # UI Display Metrics
+                # Top Metrics Display
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Ticker", selected_ticker)
-                m2.metric("Decision", decision)
+                
+                if decision == "BUY":
+                    m2.metric("Decision", decision, delta="Positive Expectancy", delta_color="normal")
+                elif decision == "SELL":
+                    m2.metric("Decision", decision, delta="Negative Risk", delta_color="inverse")
+                else:
+                    m2.metric("Decision", decision, delta="Flat Regime", delta_color="off")
+                    
                 m3.metric("Entry Price", f"₹{round(current_price, 2)}" if current_price > 0 else "N/A")
                 
-                res = [{
-                    "Ticker": selected_ticker, 
-                    "Decision": decision, 
-                    "Price": round(current_price, 2) if current_price > 0 else "-", 
-                    "Stop Loss": round(current_price - (2*current_atr), 2) if current_atr > 0 else "-", 
-                    "Explanation": explanation
-                }]
-                results_df = pd.DataFrame(res)
+                # --- ROW-BASED PARAMETER GRID (Transposed View) ---
+                rows = [
+                    {"Factor / Parameter": "Trade Execution", "Signal": decision, "Detailed Analysis": f"Composite Score: {score:.2f} | Stop Loss: ₹{current_price - (2*current_atr):.2f}" if current_atr > 0 else "N/A"},
+                    {"Factor / Parameter": "1. Technical (RSI)", "Signal": t_sig, "Detailed Analysis": t_res},
+                    {"Factor / Parameter": "2. Momentum (1M/3M)", "Signal": mom_sig, "Detailed Analysis": mom_res},
+                    {"Factor / Parameter": "3. Value (P/E, P/B)", "Signal": f_sig, "Detailed Analysis": f_res},
+                    {"Factor / Parameter": "4. Quality (ROE, D/E)", "Signal": q_sig, "Detailed Analysis": q_res},
+                    {"Factor / Parameter": "5. Flow & Liquidity", "Signal": micro_sig, "Detailed Analysis": micro_res},
+                    {"Factor / Parameter": "6. Macro & Correlation", "Signal": m_sig, "Detailed Analysis": m_res},
+                    {"Factor / Parameter": "7. Sentiment (FinBERT)", "Signal": s_sig, "Detailed Analysis": s_res},
+                ]
                 
+                results_df = pd.DataFrame(rows)
+                
+                # Render Row Grid
                 st.dataframe(
                     results_df, 
                     hide_index=True,
-                    column_config={"Explanation": st.column_config.TextColumn("Explanation", width="large")}
+                    use_container_width=True,
+                    column_config={
+                        "Factor / Parameter": st.column_config.TextColumn("Factor / Parameter", width="medium"),
+                        "Signal": st.column_config.TextColumn("Signal", width="small"),
+                        "Detailed Analysis": st.column_config.TextColumn("Detailed Analysis", width="large")
+                    }
                 )
                 
                 st.download_button("📥 Export Report", data=export_to_excel(results_df), file_name=f"{selected_ticker}_report.xlsx")
