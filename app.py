@@ -81,9 +81,17 @@ with col2:
                 s_sig, s_conf, s_res = DeepSentimentAgent().analyze(news_list, pcr, social_score)
                 m_sig, m_conf, m_res = MacroSectorAgent().analyze(df, sector_df, sector_symbol, yield_val, crude_val, vix)
                 
-                # Decision Resolution
-                score = ((1 if t_sig == "BUY" else -1) * 0.35 + (1 if m_sig == "BULLISH" else -1) * 0.35 + 
-                         (1 if f_sig == "BULLISH" else -1) * 0.20 + (1 if s_sig == "BULLISH" else -1) * 0.10)
+                # --- FIXED DECISION RESOLUTION ---
+                def map_signal(sig):
+                    if sig in ["BUY", "BULLISH"]: return 1
+                    if sig in ["SELL", "BEARISH"]: return -1
+                    return 0 # Converts HOLD or NEUTRAL to a flat 0 modifier
+                
+                score = (map_signal(t_sig) * 0.35 + 
+                         map_signal(m_sig) * 0.35 + 
+                         map_signal(f_sig) * 0.20 + 
+                         map_signal(s_sig) * 0.10)
+                         
                 decision = "BUY" if score > 0.2 else "SELL" if score < -0.2 else "HOLD"
                 
                 explanation = f"Tech: {t_res} | Correlation: {m_res} | Fund: {f_res} | Sent: {s_res}"

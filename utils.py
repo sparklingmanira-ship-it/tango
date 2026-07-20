@@ -3,7 +3,11 @@ import aiosqlite
 import asyncio
 import pandas as pd
 import random
-from datetime import datetime
+import requests
+from datetime import datetime, timedelta
+
+# --- CONFIGURATION ---
+EODHD_API_KEY = "6a5e561b47f852.19359616" # Replace with your actual EODHD API token
 
 def get_sector_index(ticker):
     """Maps tickers to their respective Nifty sector indices."""
@@ -32,10 +36,29 @@ async def get_data(ticker):
             df = t.history(period="3mo", interval="1d")
             info = t.info if t.info else {}
             
-            # Defensive news loading
-            news_items = t.news if t.news else []
-            news_list = [n.get('title') for n in news_items if isinstance(n, dict) and n.get('title')]
-            if not news_list:
+            # --- EODHD NEWS INTEGRATION ---
+            end_date = datetime.now().strftime("%Y-%m-%d")
+            start_date = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+            
+            # The 's' parameter perfectly accepts standard tickers like AAPL.US or RELIANCE.NS
+            news_url = (
+                f"https://eodhd.com/api/news?"
+                f"s={ticker}&"
+                f"from={start_date}&"
+                f"to={end_date}&"
+                f"limit=10&"
+                f"api_token={EODHD_API_KEY}&"
+                f"fmt=json"
+            )
+            
+            try:
+                news_response = requests.get(news_url, timeout=5).json()
+                if isinstance(news_response, list) and len(news_response) > 0:
+                    news_list = [article.get('title') for article in news_response if article.get('title')]
+                else:
+                    news_list = ["No recent news available."]
+            except Exception as e:
+                print(f"EODHD API Error for {ticker}: {e}")
                 news_list = ["No recent news available."]
             
             # Fetch Sector Index
