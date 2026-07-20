@@ -12,11 +12,39 @@ from utils import get_data, log_trade
 # --- UI Configuration ---
 st.set_page_config(page_title="Tango Pro-Screener", layout="wide")
 
-# Industry Standard CSS
+# Dark Theme CSS
 st.markdown("""
     <style>
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    h1 { color: #1e3a42; font-family: 'Helvetica', sans-serif; }
+    /* Main App Background */
+    .stApp {
+        background-color: #0F172A;
+    }
+    
+    /* Titles and Subtitles */
+    h1 { 
+        color: #38BDF8 !important; 
+        font-family: 'Helvetica', sans-serif; 
+    }
+    h3 {
+        color: #94A3B8 !important;
+    }
+    
+    /* Customizing the Metric Cards */
+    div[data-testid="metric-container"] {
+        background-color: #1E293B; 
+        padding: 15px; 
+        border-radius: 10px; 
+        border: 1px solid #334155;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+    
+    /* Ensure Metric Values and Labels are readable */
+    div[data-testid="metric-container"] label {
+        color: #94A3B8 !important;
+    }
+    div[data-testid="metric-container"] div {
+        color: #F8FAFC !important;
+    }
     </style>
     """, unsafe_allow_html=True)
 
